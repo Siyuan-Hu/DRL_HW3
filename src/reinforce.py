@@ -15,6 +15,10 @@ class Reinforce(object):
 
     def __init__(self, model, lr):
         self.model = model
+        ## TODO 
+        # enviroment
+        self.num_action = self.env.action_space.n
+        self.num_observation = self.env.observation_space.shape[0]
 
         # TODO: Define any training operations and optimizers here, initialize
         #       your variables, or alternately compile your model here.  
@@ -25,8 +29,8 @@ class Reinforce(object):
         #       method generate_episode() to generate training data.
         return
 
-    def generate_episode(self, env, render=False):
-        # Generates an episode by executing the current policy in the given env.
+    def generate_episode(model, env, render=False):
+        # Generates an episode by running the given model on the given env.
         # Returns:
         # - a list of states, indexed by time step
         # - a list of actions, indexed by time step
@@ -36,7 +40,35 @@ class Reinforce(object):
         actions = []
         rewards = []
 
+        state = env.reset()
+        while True:
+            if render:
+                env.render()
+            action = model.predict_on_batch(state.reshape(1,self.num_observation))
+            # one_hot_action = np.zeros(env.action_space.n)
+            # one_hot_action[np.argmax(action)] = 1
+            one_hot_action = get_random_one_hot_action(action)
+            states.append(state)
+            actions.append(one_hot_action)
+            # print(one_hot_action)
+            state, reward, done, info = env.step(np.argmax(one_hot_action))
+            rewards.append(reward)
+            if done:
+                break
+
         return states, actions, rewards
+
+    def get_random_one_hot_action(self, action):
+        random_number = np.random.rand()
+        num_action = self.num_action
+        prob_sum = 0
+        one_hot_action = np.zeros(num_action)
+        for i in range(num_action):
+            prob_sum += action[i]
+            if random_number <= prob_sum:
+                one_hot_action[i] = 1
+                return one_hot_action
+
 
 
 def parse_arguments():

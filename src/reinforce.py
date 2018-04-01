@@ -13,20 +13,57 @@ import matplotlib.pyplot as plt
 class Reinforce(object):
     # Implementation of the policy gradient method REINFORCE.
 
-    def __init__(self, model, lr):
+    def __init__(self,
+                 model,
+                 learning_rate,
+                 num_episodes,
+                 render):
         self.model = model
         ## TODO 
         # enviroment
         self.num_action = self.env.action_space.n
         self.num_observation = self.env.observation_space.shape[0]
+        self.num_episodes = num_episodes
+        self.render = render
+
+        # model
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
 
         # TODO: Define any training operations and optimizers here, initialize
-        #       your variables, or alternately compile your model here.  
+        #       your variables, or alternately compile your model here.
+        G = tf.placeholder(tf.float32,
+                           shape=[None, 1],
+                           name='G')
+        action = tf.placeholder(tf.float32,
+                                shape=[None, self.num_action],
+                                name='action')
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate,
+                                           weight_decay=weight_decay)
+        output = tf.squeeze(self.model.output)
+        score_func = tf.reduce_sum(tf.multiply(output, action), axis=[1])
+        score_func = tf.log(score_func)
+        ##TODO 
+        # divide size
+        loss = - tf.tensordot(G, score_func, axes=[0])
+        gradient = optimizer.compute_gradients(loss, model.weights)
+        self.updata_weights = optimizer.apply_gradients(gradient)
 
     def train(self, env, gamma=1.0):
         # Trains the model on a single episode using REINFORCE.
         # TODO: Implement this method. It may be helpful to call the class
         #       method generate_episode() to generate training data.
+        sess = tf.Session()
+        sess.run(tf.global_variables_initializer())
+        for i in range(self.num_episodes):
+            states, actions, rewards = self.generate_episode(self.model,
+                                                             env=env,
+                                                             render=self.render)
+            G = self.episode_reward2G(rewards, gamma)
+            sess.run(self.updata_weights,
+                     feed_dict={self.model.input: states,
+                                self.G: G,
+                                self.action: actions})
         return
 
     def generate_episode(model, env, render=False):
@@ -67,7 +104,8 @@ class Reinforce(object):
             prob_sum += action[i]
             if random_number <= prob_sum:
                 one_hot_action[i] = 1
-                return one_hot_action
+                break
+        return one_hot_action
 
     def episode_reward2G(self, rewards, gamma):
         num_step = len(rewards)

@@ -69,7 +69,14 @@ class Reinforce(object):
                 one_hot_action[i] = 1
                 return one_hot_action
 
+    def episode_reward2G(self, rewards, gamma):
+        num_step = len(rewards)
+        G = np.zeros(num_step)
+        G[num_step-1] = rewards[num_step-1]
+        for i in range(num_step-2, -1, -1):
+            G[i] = gamma * G[i+1] + rewards[i]
 
+        return G
 
 def parse_arguments():
     # Command-line flags are defined here.

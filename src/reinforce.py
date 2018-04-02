@@ -14,38 +14,39 @@ class Reinforce(object):
     # Implementation of the policy gradient method REINFORCE.
 
     def __init__(self,
+                 env,
                  model,
                  learning_rate,
                  num_episodes,
-                 render):
+                 render=False):
         self.model = model
         ## TODO 
         # enviroment
-        self.num_action = self.env.action_space.n
-        self.num_observation = self.env.observation_space.shape[0]
+        self.num_action = env.action_space.n
+        self.num_observation = env.observation_space.shape[0]
         self.num_episodes = num_episodes
         self.render = render
 
         # model
         self.learning_rate = learning_rate
-        self.weight_decay = weight_decay
 
         # TODO: Define any training operations and optimizers here, initialize
         #       your variables, or alternately compile your model here.
-        G = tf.placeholder(tf.float32,
-                           shape=[None, 1],
+        self.G = tf.placeholder(tf.float32,
+                           shape=[None],
                            name='G')
-        action = tf.placeholder(tf.float32,
+        self.action = tf.placeholder(tf.float32,
                                 shape=[None, self.num_action],
                                 name='action')
-        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate,
-                                           weight_decay=weight_decay)
-        output = tf.squeeze(self.model.output)
-        score_func = tf.reduce_sum(tf.multiply(output, action), axis=[1])
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+        # output = tf.squeeze(self.model.output)
+        output = self.model.output
+        score_func = tf.reduce_sum(tf.multiply(output, self.action), axis=[1],keepdims=True)
         score_func = tf.log(score_func)
         ##TODO 
         # divide size
-        loss = - tf.tensordot(G, score_func, axes=[0])
+        # loss = - tf.tensordot(self.G, score_func, axes=0)
+        loss = - tf.reduce_mean(tf.multiply(self.G, score_func), axis=0)
         gradient = optimizer.compute_gradients(loss, model.weights)
         self.updata_weights = optimizer.apply_gradients(gradient)
 
@@ -55,17 +56,22 @@ class Reinforce(object):
         #       method generate_episode() to generate training data.
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
+        frequence = 200
+        total = 0
         for i in range(self.num_episodes):
-            states, actions, rewards = self.generate_episode(self.model,
-                                                             env=env,
-                                                             render=self.render)
-            G = self.episode_reward2G(rewards, gamma)
+            states, actions, rewards = Reinforce.generate_episode(self.model, env)
+            total += Reinforce.sum_rewards(rewards)
+            if (i % frequence == 0):
+                print(total / frequence)
+                total = 0
+            G = Reinforce.episode_reward2G(rewards, gamma)
             sess.run(self.updata_weights,
                      feed_dict={self.model.input: states,
                                 self.G: G,
                                 self.action: actions})
         return
 
+    @staticmethod
     def generate_episode(model, env, render=False):
         # Generates an episode by running the given model on the given env.
         # Returns:
@@ -78,16 +84,15 @@ class Reinforce(object):
         rewards = []
 
         state = env.reset()
+        num_observation = env.observation_space.shape[0]
+        # num_action = env.action_space.n
         while True:
             if render:
                 env.render()
-            action = model.predict_on_batch(state.reshape(1,self.num_observation))
-            # one_hot_action = np.zeros(env.action_space.n)
-            # one_hot_action[np.argmax(action)] = 1
-            one_hot_action = get_random_one_hot_action(action)
+            action = model.predict_on_batch(state.reshape(1,num_observation))
+            one_hot_action = Reinforce.get_random_one_hot_action(action)
             states.append(state)
             actions.append(one_hot_action)
-            # print(one_hot_action)
             state, reward, done, info = env.step(np.argmax(one_hot_action))
             rewards.append(reward)
             if done:
@@ -95,26 +100,33 @@ class Reinforce(object):
 
         return states, actions, rewards
 
-    def get_random_one_hot_action(self, action):
+    @staticmethod
+    def get_random_one_hot_action(action):
         random_number = np.random.rand()
-        num_action = self.num_action
+        num_action = action.shape[1]
         prob_sum = 0
         one_hot_action = np.zeros(num_action)
         for i in range(num_action):
-            prob_sum += action[i]
+            prob_sum += action[0, i]
             if random_number <= prob_sum:
                 one_hot_action[i] = 1
                 break
         return one_hot_action
 
-    def episode_reward2G(self, rewards, gamma):
+    @staticmethod
+    def episode_reward2G(rewards, gamma, discount_factor=0.01):
         num_step = len(rewards)
-        G = np.zeros(num_step)
-        G[num_step-1] = rewards[num_step-1]
+        # G = np.zeros(num_step)
+        G = [None] * num_step
+        G[num_step-1] = rewards[num_step-1] / discount_factor
         for i in range(num_step-2, -1, -1):
-            G[i] = gamma * G[i+1] + rewards[i]
+            G[i] = gamma * G[i+1] + rewards[i] / discount_factor
 
         return G
+
+    @staticmethod
+    def sum_rewards(rewards):
+        return sum(rewards)
 
 def parse_arguments():
     # Command-line flags are defined here.
@@ -156,7 +168,11 @@ def main(args):
         model = keras.models.model_from_json(f.read())
 
     # TODO: Train the model using REINFORCE and plot the learning curve.
-
+    agent_policy_gradient = Reinforce(env=env,
+                                      model=model,
+                                      learning_rate=lr,
+                                      num_episodes=num_episodes)
+    agent_policy_gradient.train(env)
 
 if __name__ == '__main__':
     main(sys.argv)

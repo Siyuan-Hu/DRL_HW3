@@ -118,9 +118,9 @@ class Reinforce(object):
         num_step = len(rewards)
         # G = np.zeros(num_step)
         G = [None] * num_step
-        G[num_step-1] = rewards[num_step-1] / discount_factor
+        G[num_step-1] = rewards[num_step-1] * discount_factor
         for i in range(num_step-2, -1, -1):
-            G[i] = gamma * G[i+1] + rewards[i] / discount_factor
+            G[i] = gamma * G[i+1] + rewards[i] * discount_factor
 
         return G
 

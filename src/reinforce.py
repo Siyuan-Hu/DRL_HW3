@@ -40,8 +40,8 @@ class Reinforce(object):
                                 name='action')
         optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
         # output = tf.squeeze(self.model.output)
-        output = self.model.output
-        score_func = tf.reduce_sum(tf.multiply(output, self.action), axis=[1],keepdims=True)
+        self.output = self.model.output
+        score_func = tf.reduce_sum(tf.multiply(self.output, self.action), axis=[1],keepdims=True)
         score_func = tf.log(score_func)
         ##TODO 
         # divide size
@@ -50,29 +50,45 @@ class Reinforce(object):
         gradient = optimizer.compute_gradients(loss, model.weights)
         self.updata_weights = optimizer.apply_gradients(gradient)
 
+        self.sess = tf.Session()
+        self.sess.run(tf.global_variables_initializer())
+
     def train(self, env, gamma=1.0):
         # Trains the model on a single episode using REINFORCE.
         # TODO: Implement this method. It may be helpful to call the class
         #       method generate_episode() to generate training data.
-        sess = tf.Session()
-        sess.run(tf.global_variables_initializer())
+
         frequence = 200
         total = 0
         for i in range(self.num_episodes):
-            states, actions, rewards = Reinforce.generate_episode(self.model, env)
+            states, actions, rewards = self.generate_episode(self.sess, self.model, env)
             total += Reinforce.sum_rewards(rewards)
             if (i % frequence == 0):
                 print(total / frequence)
                 total = 0
             G = Reinforce.episode_reward2G(rewards, gamma)
-            sess.run(self.updata_weights,
+
+            # print("~~~~~~~~~~~~")
+            # print("output")
+            # print(self.output.eval(session = self.sess, feed_dict={self.model.input: states}))
+
+            # print("tmp action")
+            # for _s in states:
+            #     action = self.model.predict_on_batch(_s.reshape(1,8))
+            #     print
+
+            # print("action")
+            # print(self.action.eval(session = self.sess, feed_dict={self.action: actions}))
+
+            self.sess.run(self.updata_weights,
                      feed_dict={self.model.input: states,
                                 self.G: G,
                                 self.action: actions})
+
         return
 
-    @staticmethod
-    def generate_episode(model, env, render=False):
+    # @staticmethod
+    def generate_episode(self, sess, model, env, render=False):
         # Generates an episode by running the given model on the given env.
         # Returns:
         # - a list of states, indexed by time step
@@ -89,7 +105,8 @@ class Reinforce(object):
         while True:
             if render:
                 env.render()
-            action = model.predict_on_batch(state.reshape(1,num_observation))
+            # action = model.predict_on_batch(state.reshape(1,num_observation))
+            action = self.output.eval(session = sess, feed_dict={model.input: [state]})
             one_hot_action = Reinforce.get_random_one_hot_action(action)
             states.append(state)
             actions.append(one_hot_action)
@@ -102,10 +119,16 @@ class Reinforce(object):
 
     @staticmethod
     def get_random_one_hot_action(action):
+        # return action[0]
         random_number = np.random.rand()
         num_action = action.shape[1]
+
         prob_sum = 0
         one_hot_action = np.zeros(num_action)
+
+        # one_hot_action[np.argmax(action[0])]=1
+        # return one_hot_action
+
         for i in range(num_action):
             prob_sum += action[0, i]
             if random_number <= prob_sum:

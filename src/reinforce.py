@@ -158,7 +158,7 @@ def parse_arguments():
                         type=str, default='LunarLander-v2-config.json',
                         help="Path to the model config file.")
     parser.add_argument('--num-episodes', dest='num_episodes', type=int,
-                        default=50000, help="Number of episodes to train on.")
+                        default=5000000, help="Number of episodes to train on.")
     parser.add_argument('--lr', dest='lr', type=float,
                         default=5e-4, help="The learning rate.")
 

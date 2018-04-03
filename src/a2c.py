@@ -83,7 +83,7 @@ class A2C(object):
         # create network
         # get critic output
         critic_output = self.critic_model.output
-        q_value_output = tf.reduce_sum(tf.multiply(critic_output, self.critic_action_input), axis=[1])
+        q_value_output = tf.reduce_sum(tf.multiply(critic_output, self.critic_action_input), axis=[1], keepdims=True)
         critic_loss = tf.reduce_mean(tf.square(tf.subtract(self.target_q_value, q_value_output)))
         self.critic_optimizer = tf.train.AdamOptimizer(self.critic_lr).minimize(critic_loss, name = "critic_optimizer")
         

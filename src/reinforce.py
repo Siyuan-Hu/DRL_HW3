@@ -59,13 +59,10 @@ class Reinforce(object):
         #       method generate_episode() to generate training data.
 
         frequence = 200
-        total = 0
+        
         for i in range(self.num_episodes):
             states, actions, rewards = self.generate_episode(self.sess, self.model, env)
-            total += Reinforce.sum_rewards(rewards)
-            if (i % frequence == 0):
-                print(total / frequence)
-                total = 0
+            
             G = Reinforce.episode_reward2G(rewards, gamma)
 
             # print("~~~~~~~~~~~~")
@@ -84,6 +81,17 @@ class Reinforce(object):
                      feed_dict={self.model.input: states,
                                 self.G: G,
                                 self.action: actions})
+
+            if (i % frequence == 0):
+                total = 0
+                _env = gym.make('LunarLander-v2')
+                for j in range(10):
+                    _, _, rs = self.generate_episode(self.sess, self.model, _env)
+                    total += Reinforce.sum_rewards(rs)
+                
+                total /= 10
+                print(total)
+                _env.close()
 
         return
 

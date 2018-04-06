@@ -61,17 +61,21 @@ class A2C(object):
             self.critic_model.train(states, R)
 
             if (i % test_frequence == 0):
-                self.test()
+                self.test(i)
 
-    def test(self):
-        total = 0
+    def test(self, epc_idx):
+        log_dir = './log'
+        name_mean = 'test10_reward'
+        name_std = 'test10_std'
+        num_test = 10
+        total_array = np.zeros(num_test)
         env = gym.make(ENVIROMENT)
         for j in range(10):
             _, _, rs = self.generate_episode(env)
-            total += A2C.sum_rewards(rs)
+            total_array[j] = A2C.sum_rewards(rs)
 
-        total /= 10
-        print(total)
+        summary_var(log_dir, name_mean, np.mean(total_array), epc_idx)
+        summary_var(log_dir, name_std, np.std(total_array), epc_idx)
         env.close()
 
     def generate_episode(self, env, render=False):
@@ -241,6 +245,15 @@ class Critic(object):
     def get_critics(self, states):
         return self.q_values.eval(session = self.sess, feed_dict={self.state_input: states})
 
+from tensorflow.core.framework import summary_pb2
+def summary_var(log_dir, name, val, step):
+    writer = tf.summary.FileWriterCache.get(log_dir)
+    summary_proto = summary_pb2.Summary()
+    value = summary_proto.value.add()
+    value.tag = name
+    value.simple_value = float(val)
+    writer.add_summary(summary_proto, step)
+    writer.flush()
 
 def main(args):
     # Parse command-line arguments.
@@ -255,7 +268,7 @@ def main(args):
     # Create the environment.
     env = gym.make(ENVIROMENT)
     
-    a2c = A2C(env, model_config_path, lr, critic_lr, num_episodes， N_step， render)
+    a2c = A2C(env, model_config_path, lr, critic_lr, num_episodes, N_step, render)
 
     a2c.train()
 

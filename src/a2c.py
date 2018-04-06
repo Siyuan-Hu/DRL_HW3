@@ -255,7 +255,7 @@ def main(args):
     # Create the environment.
     env = gym.make(ENVIROMENT)
     
-    a2c = A2C(env, model_config_path, lr, lr, num_episodes)
+    a2c = A2C(env, model_config_path, lr, critic_lr, num_episodes， N_step， render)
 
     a2c.train()
 

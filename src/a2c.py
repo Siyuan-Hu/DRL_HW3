@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 
 from reinforce import Reinforce
 
+ENVIROMENT = 'LunarLander-v2'
 
 class A2C(object):
     # Implementation of N-step Advantage Actor Critic.
@@ -19,9 +20,8 @@ class A2C(object):
 
     def __init__(self,
                  env,
-                 model,
-                 lr,
-                 critic_model,
+                 model_config_path,
+                 actor_lr,
                  critic_lr,
                  num_episodes,
                  N_step=20,
@@ -34,103 +34,52 @@ class A2C(object):
         # - critic_model: The critic model.
         # - critic_lr: Learning rate for the critic model.
         # - N_step: The value of N in N-step A2C.
-        self.model = model
-        self.critic_model = critic_model
+        self.env = env
         self.N_step = N_step
 
         # enviroment
-        self.num_action = env.action_space.n
-        self.num_observation = env.observation_space.shape[0]
+        num_action = env.action_space.n
+        num_observation = env.observation_space.shape[0]
         self.num_episodes = num_episodes
         self.render = render
         self.discount_factor = discount_factor
 
         # model
-        self.lr = lr
-        self.critic_lr = critic_lr
-
-        # TODO: Define any training operations and optimizers here, initialize
-        #       your variables, or alternately compile your model here.  
-
-        # define the network for the actor
-        self.G = tf.placeholder(tf.float32,
-                           shape=[None],
-                           name='G')
-        self.action = tf.placeholder(tf.float32,
-                                shape=[None, self.num_action],
-                                name='action')
-        optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-        self.output = self.model.output
-        score_func = tf.reduce_sum(tf.multiply(self.output, self.action), axis=[1], keepdims=True)
-        score_func = tf.log(score_func)
-        loss = - tf.reduce_mean(tf.multiply(self.G, score_func), axis=0)
-        gradient = optimizer.compute_gradients(loss, model.weights)
-        self.updata_weights = optimizer.apply_gradients(gradient)
+        self.actor_model = Actor(model_config_path, num_action, actor_lr)
+        self.critic_model = Critic(num_observation, critic_lr)
 
 
-        # define the network for the critic
-        self.critic_state_input = tf.placeholder(tf.float32,
-                                                 shape=[None, self.num_observation],
-                                                 name="critic_state_input")
-        self.critic_action_input = tf.placeholder(tf.float32,
-                                                  shape=[None, self.num_action],
-                                                  name="critic_action_input")
-        self.target_q_value = tf.placeholder(tf.float32,
-                                             shape=[None],
-                                             name="target_q_value")
-
-        ## TODO
-        # create network
-        # get critic output
-        critic_output = self.critic_model.output
-        q_value_output = tf.reduce_sum(tf.multiply(critic_output, self.critic_action_input), axis=[1], keepdims=True)
-        critic_loss = tf.reduce_mean(tf.square(tf.subtract(self.target_q_value, q_value_output)))
-        self.critic_optimizer = tf.train.AdamOptimizer(self.critic_lr).minimize(critic_loss, name = "critic_optimizer")
-        
-        ## TODO
-        # whether one or two session
-        self.sess = tf.Session()
-        self.sess.run(tf.global_variables_initializer())
-
-    def train(self, env, gamma=1.0):
+    def train(self, gamma=1.0):
         # Trains the model on a single episode using A2C.
-        # TODO: Implement this method. It may be helpful to call the class
-        #       method generate_episode() to generate training data.
         test_frequence = 200
-        test_total_reward = 0
         for i in range(self.num_episodes):
-            states, actions, rewards = self.generate_episode(sess=self.sess,
-                                                             model=self.model,
-                                                             env=env,
+            states, actions, rewards = self.generate_episode(env=self.env,
                                                              render=self.render)
-            R, G = self.episode_reward2G_Nstep(critic_sess=self.critic_sess,
-                                            states=states,
-                                            actions=actions,
-                                            rewards=rewards,
-                                            gamma=gamma,
-                                            N_step=self.N_step,
-                                            discount_factor=self.discount_factor)
-            self.sess.run(self.updata_weights,
-                          feed_dict={self.model.input: states,
-                                     self.G: G,
-                                     self.action: actions})
+            R, G = self.episode_reward2G_Nstep(states=states, actions=actions, rewards=rewards, 
+                gamma=gamma, N_step=self.N_step, discount_factor=self.discount_factor)
+            self.actor_model.train(states, G, actions)
+            self.critic_model.train(states, R)
 
-            ## TODO
-            # how to run the critic session and update the critic network
-            self.critic_optimizer.run(sess=self.critic_sess,
-                                      feed_dict={self.critic_state_input: states,
-                                                 self.critic_action_input: actions,
-                                                 self.target_q_value: R})
+            if (i % test_frequence == 0):
+                self.test()
 
-        return
+    def test(self):
+        total = 0
+        env = gym.make(ENVIROMENT)
+        for j in range(10):
+            _, _, rs = self.generate_episode(env)
+            total += A2C.sum_rewards(rs)
 
-    def generate_episode(self, sess, model, env, render=False):
+        total /= 10
+        print(total)
+        env.close()
+
+    def generate_episode(self, env, render=False):
         # Generates an episode by running the given model on the given env.
         # Returns:
         # - a list of states, indexed by time step
         # - a list of actions, indexed by time step
         # - a list of rewards, indexed by time step
-        # TODO: Implement this method.
         states = []
         actions = []
         rewards = []
@@ -140,8 +89,8 @@ class A2C(object):
         while True:
             if render:
                 env.render()
-            action = self.output.eval(session = sess, feed_dict={model.input: [state]})
-            one_hot_action = Reinforce.get_random_one_hot_action(action)
+            action = self.actor_model.get_action(state)
+            one_hot_action = A2C.get_random_one_hot_action(action)
             states.append(state)
             actions.append(one_hot_action)
             state, reward, done, info = env.step(np.argmax(one_hot_action))
@@ -164,11 +113,10 @@ class A2C(object):
                 break
         return one_hot_action
 
-    def episode_reward2G_Nstep(self, critic_sess, states, actions, rewards, gamma, N_step, discount_factor):
+    def episode_reward2G_Nstep(self, states, actions, rewards, gamma, N_step, discount_factor):
         ## TODO
         # how to get the output
-        critic_output = self.critic_model.eval(session=critic_sess,
-                                               feed_dict={self.critic_state_input: states})
+        critic_output = self.critic_model.get_critics(states)
         num_total_step = len(rewards)
         # R: list, is the symbol "R_t" in the alorithm 2
         # G: list, is the difference between R and V(S_t)
@@ -179,7 +127,7 @@ class A2C(object):
             R[t] = (gamma ** N_step) * V_end
             for k in range(N_step):
                 R[t] += discount_factor * (gamma ** k) * (rewards[t + k] if (t + k < num_total_step) else 0)
-            G[t] = R[t] - critic_output[t]
+            G[t] = R[t] - critic_output[t][0]
 
         return R, G
 
@@ -214,6 +162,85 @@ def parse_arguments():
 
     return parser.parse_args()
 
+class Actor(object):
+    def __init__(self, model_config_path, num_action, lr):
+        with open(model_config_path, 'r') as f:
+            self.model = keras.models.model_from_json(f.read())
+        # define the network for the actor
+        self.G = tf.placeholder(tf.float32,
+                           shape=[None],
+                           name='G')
+        self.action = tf.placeholder(tf.float32,
+                                shape=[None, num_action],
+                                name='action')
+        optimizer = tf.train.AdamOptimizer(learning_rate=lr)
+        self.output = self.model.output
+        score_func = tf.reduce_sum(tf.multiply(self.output, self.action), axis=[1], keepdims=True)
+        score_func = tf.log(score_func)
+        loss = - tf.reduce_mean(tf.multiply(self.G, score_func), axis=0)
+        gradient = optimizer.compute_gradients(loss, self.model.weights)
+        self.updata_weights = optimizer.apply_gradients(gradient)
+
+        self.sess = tf.Session()
+        self.sess.run(tf.global_variables_initializer())
+
+    def train(self, states, G, actions):
+        self.sess.run(self.updata_weights, 
+            feed_dict={self.model.input: states, self.G: G, self.action: actions})
+
+    def get_action(self, state):
+        return self.output.eval(session = self.sess, feed_dict={self.model.input: [state]})
+
+class Critic(object):
+    def __init__(self, num_observation, lr):
+        # define the network for the critic
+        self.num_observation = num_observation
+        self.learning_rate = lr
+        self.create_mlp()
+        self.create_optimizer()
+
+        ## TODO
+        # create network
+        # get critic output
+
+        self.sess = tf.Session()
+        self.sess.run(tf.global_variables_initializer())
+
+    def train(self, states, R):
+        self.optimizer.run(session=self.sess, feed_dict={self.state_input: states, self.target_q_value: R})
+
+    def create_mlp(self):
+        # Craete multilayer perceptron (one hidden layer with 20 units)
+        self.hidden_units = 20
+
+        self.w1 = self.create_weights([self.num_observation, self.hidden_units])
+        self.b1 = self.create_bias([self.hidden_units])
+
+        self.state_input = tf.placeholder(tf.float32, [None, self.num_observation], name = "state_input")
+
+        h_layer = tf.nn.relu(tf.matmul(self.state_input, self.w1) + self.b1)
+
+        self.w2 = self.create_weights([self.hidden_units, 1])
+        self.b2 = self.create_bias([1])
+        self.q_values = tf.add(tf.matmul(h_layer, self.w2), self.b2, name = "q_values")
+
+    def create_weights(self, shape):
+        initial = tf.truncated_normal(shape, stddev = 0.1)
+        return tf.Variable(initial)
+
+    def create_bias(self, shape):
+        initial = tf.constant(0.1, shape = shape)
+        return tf.Variable(initial)
+
+    def create_optimizer(self):
+        # Using Adam to minimize the error between target and evaluation
+        self.target_q_value = tf.placeholder(tf.float32, [None], name = "target_q_value")
+        cost = tf.reduce_mean(tf.square(tf.subtract(self.target_q_value, self.q_values)))
+        self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(cost, name = "optimizer")
+
+    def get_critics(self, states):
+        return self.q_values.eval(session = self.sess, feed_dict={self.state_input: states})
+
 
 def main(args):
     # Parse command-line arguments.
@@ -226,11 +253,11 @@ def main(args):
     render = args.render
 
     # Create the environment.
-    env = gym.make('LunarLander-v2')
+    env = gym.make(ENVIROMENT)
     
-    # Load the actor model from file.
-    with open(model_config_path, 'r') as f:
-        model = keras.models.model_from_json(f.read())
+    a2c = A2C(env, model_config_path, lr, lr, num_episodes)
+
+    a2c.train()
 
     # TODO: Train the model using A2C and plot the learning curves.
 

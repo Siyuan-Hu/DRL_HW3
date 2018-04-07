@@ -131,10 +131,10 @@ def main(args):
     # Create the environment.
     env = gym.make('LunarLander-v2')
 
-    # imitation.train(env, num_episodes = 100, num_epochs = 1000, render = False)
+    imitation.train(env, num_episodes = 100, num_epochs = 1000, render = False)
 
     for i in range(10):
-        imitation.run_expert(env, render = True)
+        imitation.run_model(env, render = True)
     
     # TODO: Train cloned models using imitation learning, and record their
     #       performance.

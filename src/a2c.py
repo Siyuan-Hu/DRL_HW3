@@ -217,27 +217,13 @@ class Actor(object):
 
         if model != None:
             self.load_model(model)
-            print("load")
-        # self.sess.run(tf.local_variables_initializer())
-        # print("hehe")
 
     def train(self, states, G, actions):
         self.sess.run(self.updata_weights, 
             feed_dict={self.input: states, self.G: G, self.action: actions})
 
     def get_action(self, state):
-        # action = self.output.eval(session = self.sess, feed_dict={self.input: [state]})
-        # # print("~~~~~~~~")
-        # print(action)
-        # print(self.model.predict_on_batch(state.reshape(1,8)))
         return self.output.eval(session = self.sess, feed_dict={self.input: [state]})
-        # return self.model.predict_on_batch(state.reshape(1,8))
-
-    # def save_model_weight(self, step):
-    #     self.model.save_weights("./models/actor-"+str(step)+".h5")
-
-    # def load_model_weight(self, weight_file):
-    #     self.model.load_weights(weight_file)
 
     def save_model(self, step):
         # Helper function to save your model.
@@ -339,7 +325,7 @@ def main(args):
     # Create the environment.
     env = gym.make(ENVIROMENT)
     
-    a2c = A2C(env, model_config_path, lr, critic_lr, num_episodes, N_step, render, model_step = 7400)
+    a2c = A2C(env, model_config_path, lr, critic_lr, num_episodes, N_step, render)#, model_step = 7400)
 
     a2c.train()
 

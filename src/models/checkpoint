@@ -1,0 +1,2 @@
+model_checkpoint_path: "critic-2200"
+all_model_checkpoint_paths: "critic-2200"

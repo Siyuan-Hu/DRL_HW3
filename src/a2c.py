@@ -26,7 +26,8 @@ class A2C(object):
                  num_episodes,
                  N_step=20,
                  render=False,
-                 discount_factor=0.01):
+                 discount_factor=0.01,
+                 model_step = None):
         # Initializes A2C.
         # Args:
         # - model: The actor model.
@@ -45,12 +46,16 @@ class A2C(object):
         self.discount_factor = discount_factor
 
         # model
-        self.actor_model = Actor(model_config_path, num_action, actor_lr)
-        self.critic_model = Critic(num_observation, critic_lr)
+        if model_step == None:
+            self.actor_model = Actor(model_config_path, num_action, actor_lr)
+            self.critic_model = Critic(num_observation, critic_lr)
+        else:
+            self.load_models(model_config_path, num_observation, num_action, actor_lr, critic_lr, model_step)
 
 
     def train(self, gamma=1.0):
         # Trains the model on a single episode using A2C.
+        max_reward = -500
         test_frequence = 200
         for i in range(self.num_episodes):
             states, actions, rewards = self.generate_episode(env=self.env,
@@ -61,7 +66,11 @@ class A2C(object):
             self.critic_model.train(states, R)
 
             if (i % test_frequence == 0):
-                self.test(i)
+                reward = self.test(i)
+                print(reward)
+                if reward > max_reward:
+                    self.save_models(i)
+                    max_reward = reward
 
     def test(self, epc_idx):
         log_dir = './log'
@@ -77,6 +86,8 @@ class A2C(object):
         summary_var(log_dir, name_mean, np.mean(total_array), epc_idx)
         summary_var(log_dir, name_std, np.std(total_array), epc_idx)
         env.close()
+
+        return np.sum(total_array) / num_test
 
     def generate_episode(self, env, render=False):
         # Generates an episode by running the given model on the given env.
@@ -139,6 +150,14 @@ class A2C(object):
     def sum_rewards(rewards):
         return sum(rewards)
 
+    def save_models(self, model_step):
+        self.actor_model.save_model(model_step)
+        self.critic_model.save_model(model_step)
+
+    def load_models(self, model_config_path, num_observation, num_action, actor_lr, critic_lr, model_step):
+        self.actor_model = Actor(model_config_path, num_action, actor_lr, model = "./models/actor-"+str(model_step)+".h5")
+        self.critic_model = Critic(num_observation, critic_lr, model = "./models/critic-"+str(model_step))
+
 def parse_arguments():
     # Command-line flags are defined here.
     parser = argparse.ArgumentParser()
@@ -167,9 +186,15 @@ def parse_arguments():
     return parser.parse_args()
 
 class Actor(object):
-    def __init__(self, model_config_path, num_action, lr):
+    def __init__(self, model_config_path, num_action, lr, model = None):
+        # if model != None:
+        #     self.load_model(model)
+        #     return
+
         with open(model_config_path, 'r') as f:
             self.model = keras.models.model_from_json(f.read())
+
+
         # define the network for the actor
         self.G = tf.placeholder(tf.float32,
                            shape=[None],
@@ -177,6 +202,7 @@ class Actor(object):
         self.action = tf.placeholder(tf.float32,
                                 shape=[None, num_action],
                                 name='action')
+        self.input = self.model.input
         optimizer = tf.train.AdamOptimizer(learning_rate=lr)
         self.output = self.model.output
         score_func = tf.reduce_sum(tf.multiply(self.output, self.action), axis=[1], keepdims=True)
@@ -187,28 +213,54 @@ class Actor(object):
 
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
+        keras.backend.set_session(self.sess)
+
+        if model != None:
+            self.load_model(model)
+            print("load")
+        # self.sess.run(tf.local_variables_initializer())
+        # print("hehe")
 
     def train(self, states, G, actions):
         self.sess.run(self.updata_weights, 
-            feed_dict={self.model.input: states, self.G: G, self.action: actions})
+            feed_dict={self.input: states, self.G: G, self.action: actions})
 
     def get_action(self, state):
-        return self.output.eval(session = self.sess, feed_dict={self.model.input: [state]})
+        # action = self.output.eval(session = self.sess, feed_dict={self.input: [state]})
+        # # print("~~~~~~~~")
+        # print(action)
+        # print(self.model.predict_on_batch(state.reshape(1,8)))
+        return self.output.eval(session = self.sess, feed_dict={self.input: [state]})
+        # return self.model.predict_on_batch(state.reshape(1,8))
+
+    # def save_model_weight(self, step):
+    #     self.model.save_weights("./models/actor-"+str(step)+".h5")
+
+    # def load_model_weight(self, weight_file):
+    #     self.model.load_weights(weight_file)
+
+    def save_model(self, step):
+        # Helper function to save your model.
+        self.model.save_weights("./models/actor-"+str(step)+".h5")
+
+    def load_model(self, model_file):
+        # Helper function to load an existing model.
+        self.model.load_weights(model_file)
 
 class Critic(object):
-    def __init__(self, num_observation, lr):
+    def __init__(self, num_observation, lr, model = None):
         # define the network for the critic
         self.num_observation = num_observation
         self.learning_rate = lr
-        self.create_mlp()
-        self.create_optimizer()
-
-        ## TODO
-        # create network
-        # get critic output
 
         self.sess = tf.Session()
-        self.sess.run(tf.global_variables_initializer())
+
+        if model != None:
+            self.load_model(model)
+        else:
+            self.create_mlp()
+            self.create_optimizer()
+            self.sess.run(tf.global_variables_initializer())
 
     def train(self, states, R):
         self.optimizer.run(session=self.sess, feed_dict={self.state_input: states, self.target_q_value: R})
@@ -245,6 +297,25 @@ class Critic(object):
     def get_critics(self, states):
         return self.q_values.eval(session = self.sess, feed_dict={self.state_input: states})
 
+    def save_model(self, step):
+        # Helper function to save your model.
+        saver = tf.train.Saver()
+        self.sess.graph.add_to_collection("optimizer", self.optimizer)
+        saver.save(self.sess, "./models/critic", global_step = step)
+
+    def load_model(self, model_file):
+        # Helper function to load an existing model.
+        tf.reset_default_graph()
+        self.sess = tf.Session()
+        saver = tf.train.import_meta_graph(model_file + '.meta')
+        saver.restore(self.sess, model_file)
+
+        graph = tf.get_default_graph()
+        self.q_values = graph.get_tensor_by_name("q_values:0")
+        self.state_input = graph.get_tensor_by_name("state_input:0")
+        self.target_q_value = graph.get_tensor_by_name("target_q_value:0")
+        self.optimizer = graph.get_collection("optimizer")[0]
+
 from tensorflow.core.framework import summary_pb2
 def summary_var(log_dir, name, val, step):
     writer = tf.summary.FileWriterCache.get(log_dir)
@@ -268,7 +339,7 @@ def main(args):
     # Create the environment.
     env = gym.make(ENVIROMENT)
     
-    a2c = A2C(env, model_config_path, lr, critic_lr, num_episodes, N_step, render)
+    a2c = A2C(env, model_config_path, lr, critic_lr, num_episodes, N_step, render, model_step = 7400)
 
     a2c.train()
 

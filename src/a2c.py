@@ -57,6 +57,7 @@ class A2C(object):
         # Trains the model on a single episode using A2C.
         max_reward = -500
         test_frequence = 200
+        self.gamma_N_step = gamma ** N_step
         for i in range(self.num_episodes):
             states, actions, rewards = self.generate_episode(env=self.env,
                                                              render=self.render)
@@ -139,9 +140,11 @@ class A2C(object):
         G = [None] * num_total_step
         for t in range(num_total_step - 1, -1, -1):
             V_end = 0 if (t + N_step >= num_total_step) else critic_output[t + N_step]
-            R[t] = (gamma ** N_step) * V_end
+            R[t] = (self.gamma_N_step) * V_end
+            gamma_k = 1
             for k in range(N_step):
-                R[t] += discount_factor * (gamma ** k) * (rewards[t + k] if (t + k < num_total_step) else 0)
+                R[t] += discount_factor * (gamma_k) * (rewards[t + k] if (t + k < num_total_step) else 0)
+                gamma_k *= k
             G[t] = R[t] - critic_output[t][0]
 
         return R, G
@@ -165,7 +168,7 @@ def parse_arguments():
                         type=str, default='LunarLander-v2-config.json',
                         help="Path to the actor model config file.")
     parser.add_argument('--num-episodes', dest='num_episodes', type=int,
-                        default=50000, help="Number of episodes to train on.")
+                        default=5000000, help="Number of episodes to train on.")
     parser.add_argument('--lr', dest='lr', type=float,
                         default=5e-4, help="The actor's learning rate.")
     parser.add_argument('--critic-lr', dest='critic_lr', type=float,

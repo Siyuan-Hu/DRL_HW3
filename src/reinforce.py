@@ -58,24 +58,14 @@ class Reinforce(object):
         # TODO: Implement this method. It may be helpful to call the class
         #       method generate_episode() to generate training data.
 
-        frequence = 200
+        frequence = 10
+        num_test = 2
+        total_array = np.zeros(num_test)
         
         for i in range(self.num_episodes):
             states, actions, rewards = self.generate_episode(self.sess, self.model, env)
             
             G = Reinforce.episode_reward2G(rewards, gamma)
-
-            # print("~~~~~~~~~~~~")
-            # print("output")
-            # print(self.output.eval(session = self.sess, feed_dict={self.model.input: states}))
-
-            # print("tmp action")
-            # for _s in states:
-            #     action = self.model.predict_on_batch(_s.reshape(1,8))
-            #     print
-
-            # print("action")
-            # print(self.action.eval(session = self.sess, feed_dict={self.action: actions}))
 
             self.sess.run(self.updata_weights,
                      feed_dict={self.model.input: states,
@@ -83,14 +73,14 @@ class Reinforce(object):
                                 self.action: actions})
 
             if (i % frequence == 0):
-                total = 0
                 _env = gym.make('LunarLander-v2')
-                for j in range(10):
+                for j in range(num_test):
                     _, _, rs = self.generate_episode(self.sess, self.model, _env)
-                    total += Reinforce.sum_rewards(rs)
-                
-                total /= 10
-                print(total)
+                    tmp_1 = Reinforce.sum_rewards(rs)
+                    total_array[j] = tmp_1
+                test_reward_mean = np.mean(total_array)
+                test_reward_std = np.std(total_array)
+
                 _env.close()
 
         return

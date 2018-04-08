@@ -58,8 +58,8 @@ class Reinforce(object):
         # TODO: Implement this method. It may be helpful to call the class
         #       method generate_episode() to generate training data.
 
-        frequence = 10
-        num_test = 2
+        frequence = 3000
+        num_test = 100
         total_array = np.zeros(num_test)
         
         for i in range(self.num_episodes):

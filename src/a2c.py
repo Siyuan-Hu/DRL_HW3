@@ -55,9 +55,11 @@ class A2C(object):
 
     def train(self, gamma=1.0):
         # Trains the model on a single episode using A2C.
+        file = open("log.txt", "w")
+
         max_reward = -500
         test_frequence = 200
-        self.gamma_N_step = gamma ** N_step
+        self.gamma_N_step = gamma ** self.N_step
         for i in range(self.num_episodes):
             states, actions, rewards = self.generate_episode(env=self.env,
                                                              render=self.render)
@@ -67,11 +69,14 @@ class A2C(object):
             self.critic_model.train(states, R)
 
             if (i % test_frequence == 0):
-                reward = self.test(i)
-                print(reward)
+                reward, std = self.test(i)
+                file.write(str(reward)+" "+str(std)+"\n")
+                print(reward, std)
                 if reward > max_reward:
                     self.save_models(i)
                     max_reward = reward
+
+        file.close()
 
     def test(self, epc_idx):
         log_dir = './log'
@@ -88,7 +93,7 @@ class A2C(object):
         summary_var(log_dir, name_std, np.std(total_array), epc_idx)
         env.close()
 
-        return np.sum(total_array) / num_test
+        return np.mean(total_array), np.std(total_array)
 
     def generate_episode(self, env, render=False):
         # Generates an episode by running the given model on the given env.

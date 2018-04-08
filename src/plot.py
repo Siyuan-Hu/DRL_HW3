@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 
 index = 0
-step = 200
+step = 1000
 update = []
 reward = []
 std = []
@@ -29,7 +29,7 @@ file.close()
 plt.plot(update, reward, c='b', label='reinforce')
 
 plt.legend(loc='best')
-plt.ylabel('average reward on 10 episodes')
+plt.ylabel('mean/std reward on '+str(step)+' episodes')
 plt.xlabel('episodes')
 plt.errorbar(update, reward, yerr=std, fmt='o')
 plt.grid()

@@ -58,7 +58,7 @@ class A2C(object):
         file = open("log.txt", "w")
 
         max_reward = -500
-        test_frequence = 200
+        test_frequence = 1000
         self.gamma_N_step = gamma ** self.N_step
         for i in range(self.num_episodes):
             states, actions, rewards = self.generate_episode(env=self.env,
@@ -82,10 +82,10 @@ class A2C(object):
         log_dir = './log'
         name_mean = 'test10_reward'
         name_std = 'test10_std'
-        num_test = 10
+        num_test = 100
         total_array = np.zeros(num_test)
         env = gym.make(ENVIROMENT)
-        for j in range(10):
+        for j in range(num_test):
             _, _, rs = self.generate_episode(env)
             total_array[j] = A2C.sum_rewards(rs)
 

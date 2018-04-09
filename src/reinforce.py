@@ -57,6 +57,7 @@ class Reinforce(object):
         # Trains the model on a single episode using REINFORCE.
         # TODO: Implement this method. It may be helpful to call the class
         #       method generate_episode() to generate training data.
+        file = open("log.txt", "w")
 
         frequence = 3000
         num_test = 100
@@ -81,7 +82,11 @@ class Reinforce(object):
                 test_reward_mean = np.mean(total_array)
                 test_reward_std = np.std(total_array)
 
+                file.write(str(test_reward_mean)+" "+str(test_reward_std)+"\n")
+
                 _env.close()
+
+        file.close()
 
         return
 

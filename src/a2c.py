@@ -262,17 +262,25 @@ class Critic(object):
     def create_mlp(self):
         # Craete multilayer perceptron (one hidden layer with 20 units)
         self.hidden_units = 20
+        self.state_input = tf.placeholder(tf.float32, [None, self.num_observation], name = "state_input")
 
         self.w1 = self.create_weights([self.num_observation, self.hidden_units])
         self.b1 = self.create_bias([self.hidden_units])
-
-        self.state_input = tf.placeholder(tf.float32, [None, self.num_observation], name = "state_input")
-
         h_layer = tf.nn.relu(tf.matmul(self.state_input, self.w1) + self.b1)
 
-        self.w2 = self.create_weights([self.hidden_units, 1])
-        self.b2 = self.create_bias([1])
-        self.q_values = tf.add(tf.matmul(h_layer, self.w2), self.b2, name = "q_values")
+        hidden_2_layer = 10
+        self.w2 = self.create_weights([self.hidden_units, hidden_2_layer])
+        self.b2 = self.create_bias([hidden_2_layer])
+        h_layer = tf.nn.relu(tf.matmul(h_layer, self.w2) + self.b2)
+
+        hidden_3_layer = 4
+        self.w3 = self.create_weights([hidden_2_layer, hidden_3_layer])
+        self.b3 = self.create_bias([hidden_3_layer])
+        h_layer = tf.nn.relu(tf.matmul(h_layer, self.w3) + self.b3)
+
+        self.w4 = self.create_weights([hidden_3_layer, 1])
+        self.b4 = self.create_bias([1])
+        self.q_values = tf.add(tf.matmul(h_layer, self.w4), self.b4, name = "q_values")
 
     def create_weights(self, shape):
         initial = tf.truncated_normal(shape, stddev = 0.1)

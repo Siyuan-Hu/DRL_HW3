@@ -86,7 +86,7 @@ class A2C(object):
         total_array = np.zeros(num_test)
         env = gym.make(ENVIROMENT)
         for j in range(num_test):
-            _, _, rs = self.generate_episode(env)
+            _, _, rs = self.generate_episode(env, test = True)
             total_array[j] = A2C.sum_rewards(rs)
 
         summary_var(log_dir, name_mean, np.mean(total_array), epc_idx)
@@ -95,7 +95,7 @@ class A2C(object):
 
         return np.mean(total_array), np.std(total_array)
 
-    def generate_episode(self, env, render=False):
+    def generate_episode(self, env, render=False, test = False):
         # Generates an episode by running the given model on the given env.
         # Returns:
         # - a list of states, indexed by time step
@@ -111,7 +111,12 @@ class A2C(object):
             if render:
                 env.render()
             action = self.actor_model.get_action(state)
-            one_hot_action = A2C.get_random_one_hot_action(action)
+
+            if test:
+                one_hot_action = A2C.get_max_one_hot_action(action)
+            else:
+                one_hot_action = A2C.get_random_one_hot_action(action)
+
             states.append(state)
             actions.append(one_hot_action)
             state, reward, done, info = env.step(np.argmax(one_hot_action))
@@ -132,6 +137,16 @@ class A2C(object):
             if random_number <= prob_sum:
                 one_hot_action[i] = 1
                 break
+        return one_hot_action
+
+    @staticmethod
+    def get_max_one_hot_action(action):
+        num_action = action.shape[1]
+        one_hot_action = np.zeros(num_action)
+        one_hot_action[np.argmax(action[0])] = 1
+        # print("~~~~~~")
+        # print(action[0])
+        # print(one_hot_action)
         return one_hot_action
 
     def episode_reward2G_Nstep(self, states, actions, rewards, gamma, N_step, discount_factor):

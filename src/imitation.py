@@ -135,14 +135,14 @@ def main(args):
     # Create the environment.
     env = gym.make('LunarLander-v2')
 
-    imitation.train(env, num_episodes = 10, num_epochs = 100, render = False)
+    imitation.train(env, num_episodes = 100, num_epochs = 100, render = False)
 
-    total = 0
-    for i in range(50):
+    num_test = 50
+    total_array = np.zeros(num_test)
+    for i in range(num_test):
         _, _, rewards = imitation.run_model(env, render = False)
-        total += np.sum(rewards)
-    total /= 50
-    print(total)
+        total_array[i] = np.sum(rewards)
+    print(np.mean(total_array), np.std(total_array))
     
     # TODO: Train cloned models using imitation learning, and record their
     #       performance.

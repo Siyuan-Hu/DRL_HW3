@@ -1,0 +1,42 @@
+Overview
+
+This code provides implementation of multiple deep reinforcement learning algorithms on LunarLander-v2 environment.
+The implementations are based on Tensorflow and Keras. I use OpenAI Gym as the RL environment.
+
+imitation.py:
+
+	content:
+		The implementation of behavior cloning using supervised imitation learning from an expert policy
+	note:
+		You will need LunarLander-v2-config.json and LunarLander-v2-weights.h5 to load the expert model.
+
+reinforce.py:
+
+	content:
+		The implementation of REINFORCE
+	note:
+		You will need LunarLander-v2-config.json to load the network config.
+
+a2c.py:
+
+	content:
+		The implementation of N-step Advantage Actor Critic
+
+	note:
+		You will need LunarLander-v2-config.json to load the actor network config.
+		Our implementation can solve this environment for different N_step(1, 20, 50, 100).
+		You can change the N_step parameter to see the difference.
+
+plot.py:
+
+The auxiliary script to parse the log and plot the performance.
+You can run the script to generate the performance plot.
+You will need to run the above implementation code to generate the log file first.
+
+LunarLander-v2-config.json:
+
+The policy network architecture.
+
+LunarLander-v2-weights.h5:
+
+The expert model's weights.

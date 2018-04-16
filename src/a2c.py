@@ -194,40 +194,50 @@ def parse_arguments():
     return parser.parse_args()
 
 class Actor(object):
-    def __init__(self, model_config_path, num_action, lr, model = None):
+    def __init__(self, num_action, lr, model = None):
         # if model != None:
         #     self.load_model(model)
         #     return
 
-        with open(model_config_path, 'r') as f:
-            self.model = keras.models.model_from_json(f.read())
+        # with open(model_config_path, 'r') as f:
+        #     self.model = keras.models.model_from_json(f.read())
 
 
-        # define the network for the actor
-        self.G = tf.placeholder(tf.float32,
-                           shape=[None],
-                           name='G')
-        self.action = tf.placeholder(tf.float32,
-                                shape=[None, num_action],
-                                name='action')
-        self.input = self.model.input
-        optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-        self.output = self.model.output
-        score_func = tf.reduce_sum(tf.multiply(self.output, self.action), axis=[1], keepdims=True)
-        score_func = tf.log(score_func)
-        loss = - tf.reduce_mean(tf.multiply(self.G, score_func), axis=0)
-        gradient = optimizer.compute_gradients(loss, self.model.weights)
-        self.updata_weights = optimizer.apply_gradients(gradient)
+        # # define the network for the actor
+        # self.G = tf.placeholder(tf.float32,
+        #                    shape=[None],
+        #                    name='G')
+        # self.action = tf.placeholder(tf.float32,
+        #                         shape=[None, num_action],
+        #                         name='action')
+        # self.input = self.model.input
+        # optimizer = tf.train.AdamOptimizer(learning_rate=lr)
+        # self.output = self.model.output
+        # score_func = tf.reduce_sum(tf.multiply(self.output, self.action), axis=[1], keepdims=True)
+        # score_func = tf.log(score_func)
+        # loss = - tf.reduce_mean(tf.multiply(self.G, score_func), axis=0)
+        # gradient = optimizer.compute_gradients(loss, self.model.weights)
+        # self.updata_weights = optimizer.apply_gradients(gradient)
 
+        # self.sess = tf.Session()
+        # self.sess.run(tf.global_variables_initializer())
+        # keras.backend.set_session(self.sess)
+        self.lr = lr
+        self.num_action = num_action
+        self.action_low = action_low
+        self.action_high = action_high
         self.sess = tf.Session()
-        self.sess.run(tf.global_variables_initializer())
-        keras.backend.set_session(self.sess)
-
+        
         if model != None:
             self.load_model(model)
+        else:
+            self.create_mlp()
+            self.create_optimizer()
+            self.sess.run(tf.global_variables_initializer())
+
 
     def train(self, states, G, actions):
-        self.sess.run(self.updata_weights, 
+        self.sess.run(self.sess, 
             feed_dict={self.input: states, self.G: G, self.action: actions})
 
     def get_action(self, state):
@@ -240,6 +250,64 @@ class Actor(object):
     def load_model(self, model_file):
         # Helper function to load an existing model.
         self.model.load_weights(model_file)
+
+###
+    def create_mlp(self):
+        # Craete multilayer perceptron (one hidden layer with 20 units)
+        hidden_units = 20
+        # self.state_input = tf.placeholder(tf.float32, [None, self.num_observation], name = "state_input")
+
+        # self.w1 = self.create_weights([self.num_observation, self.hidden_units])
+        # self.b1 = self.create_bias([self.hidden_units])
+        # h_layer = tf.nn.relu(tf.matmul(self.state_input, self.w1) + self.b1)
+
+        # self.w2 = self.create_weights([self.hidden_units, 1])
+        # self.b2 = self.create_bias([1])
+        # self.q_values = tf.add(tf.matmul(h_layer, self.w2), self.b2, name = "q_values")
+        self.state_input = tf.placeholder(tf.float32, [None, self.num_observation], name = "state_input")
+        h_1_act = layers.dense(inputs=self.state_input,
+                               units=hidden_units,
+                               kernel_initializer=xavier_initializer(),
+                               activation=tf.nn.selu,
+                               name="h_1_act",
+                               use_bias=False)
+        h_2_act = layers.dense(inputs=h_1_act,
+                               units=hidden_units,
+                               kernel_initializer=xavier_initializer(),
+                               activation=tf.nn.selu,
+                               name="h_2_act",
+                               use_bias=False)
+        mu_out = layers.dense(inputs=h_2_act,
+                              units=1,
+                              kernel_initializer=xavier_initializer(),
+                              activation=tf.nn.tanh,
+                              name="mu_out",
+                              use_bias=False)
+        sigma_out = layers.dense(inputs=h_2_act,
+                                 units=1,
+                                 kernel_initializer=xavier_initializer(),
+                                 activation=tf.nn.softplus,
+                                 name="sigma_out",
+                                 use_bias=False)
+        self.normal_dist = tf.distributions.Normal(loc=mu_out,
+                                                   scale=sigma_out)
+        act_out = tf.reshape(self.normal_dist.sample(1), shape=[-1,1])
+        act_out = tf.clip_by_value(act_out,
+                                   self.action_low,
+                                   self.action_high)
+
+    def create_optimizer(self):
+        # Using Adam to minimize the error between target and evaluation
+        # self.target_q_value = tf.placeholder(tf.float32, [None], name = "target_q_value")
+        # cost = tf.reduce_mean(tf.square(tf.subtract(self.target_q_value, self.q_values)))
+        # self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(cost, name = "optimizer")
+        self.action = tf.placeholder(tf.float32, [None, self.num_action], name="action")
+        logprobs = self.normal_dist.log_prob(self.action)
+        entropy = self.normal_dist.entropy()
+        policy_loss = tf.reduce_mean(-logprobs * self.G - 0.01*entropy)
+        self.optimizer_policy = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(policy_loss, name='optimizer')
+
+
 
 class Critic(object):
     def __init__(self, num_observation, lr, model = None):

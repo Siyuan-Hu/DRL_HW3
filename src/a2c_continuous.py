@@ -4,6 +4,7 @@ import numpy as np
 import tensorflow as tf
 import keras
 import gym
+import math
 
 import matplotlib
 matplotlib.use('Agg')
@@ -11,8 +12,9 @@ import matplotlib.pyplot as plt
 
 from reinforce import Reinforce
 
-ENVIROMENT = 'LunarLander-v2'
-
+ENVIROMENT = 'InvertedPendulum-v1'
+LAYER1_SIZE=400
+LAYER2_SIZE=300
 class A2C(object):
 	# Implementation of N-step Advantage Actor Critic.
 	# This class inherits the Reinforce class, so for example, you can reuse
@@ -24,9 +26,9 @@ class A2C(object):
 				 actor_lr,
 				 critic_lr,
 				 num_episodes,
-				 N_step=20,
+				 N_step=0,
 				 render=False,
-				 discount_factor=0.01,
+				 discount_factor=0.99,
 				 model_step = None):
 		# Initializes A2C.
 		# Args:
@@ -37,20 +39,18 @@ class A2C(object):
 		# - N_step: The value of N in N-step A2C.
 		self.env = env
 		self.N_step = N_step
-
+		self.actor_lr = actor_lr
+		self.critic_lr = critic_lr
 		# enviroment
-		num_action = env.action_space.n
+		num_action = env.action_space.shape[0]
 		num_observation = env.observation_space.shape[0]
 		self.num_episodes = num_episodes
 		self.render = render
 		self.discount_factor = discount_factor
-
+		self.sess = tf.Session()
 		# model
-		if model_step == None:
-			self.actor_model = Actor(model_config_path, num_action, actor_lr)
-			self.critic_model = Critic(num_observation, critic_lr)
-		else:
-			self.load_models(model_config_path, num_observation, num_action, actor_lr, critic_lr, model_step)
+		self.actor_model = Actor(self.sess,num_observation,num_action,self.actor_lr)
+		self.critic_model = Critic(self.sess,num_observation,num_action ,self.critic_lr)
 
 	
 
@@ -58,7 +58,6 @@ class A2C(object):
 		# Trains the model on a single episode using A2C.
 		file = open("log.txt", "w")
 
-		max_reward = -500
 		test_frequence = 1000
 		self.gamma_N_step = gamma ** self.N_step
 		for i in range(self.num_episodes):
@@ -66,16 +65,17 @@ class A2C(object):
 															 render=self.render)
 			R, G = self.episode_reward2G_Nstep(states=states, actions=actions, rewards=rewards, 
 				gamma=gamma, N_step=self.N_step, discount_factor=self.discount_factor)
-			self.actor_model.train(states, G, actions)
-			self.critic_model.train(states, R)
+			self.critic_model.train(states, R,actions)
+			action_batch_for_gradients = self.actor_model.actions(states)
+			q_gradient_batch = self.critic_model.gradients(states,action_batch_for_gradients)
+			self.actor_model.train(q_gradient_batch,states)
+			
 
 			if (i % test_frequence == 0):
 				reward, std = self.test(i)
 				file.write(str(reward)+" "+str(std)+"\n")
 				print(reward, std)
-				if reward > max_reward:
-					self.save_models(i)
-					max_reward = reward
+
 
 		file.close()
 
@@ -96,6 +96,10 @@ class A2C(object):
 
 		return np.mean(total_array), np.std(total_array)
 
+	def get_action(self,state):
+		action = self.actor_model.action(state)
+		return action
+
 	def generate_episode(self, env, render=False):
 		# Generates an episode by running the given model on the given env.
 		# Returns:
@@ -111,34 +115,23 @@ class A2C(object):
 		while True:
 			if render:
 				env.render()
-			action = self.actor_model.get_action(state)
-			one_hot_action = A2C.get_random_one_hot_action(action)
+			action = self.actor_model.action(state)
+
+
 			states.append(state)
-			actions.append(one_hot_action)
-			state, reward, done, info = env.step(np.argmax(one_hot_action))
+			actions.append(action)
+			state, reward, done, info = env.step(action)
 			rewards.append(reward)
 			if done:
 				break
 
 		return states, actions, rewards
 
-	@staticmethod
-	def get_random_one_hot_action(action):
-		random_number = np.random.rand()
-		num_action = action.shape[1]
-		prob_sum = 0
-		one_hot_action = np.zeros(num_action)
-		for i in range(num_action):
-			prob_sum += action[0, i]
-			if random_number <= prob_sum:
-				one_hot_action[i] = 1
-				break
-		return one_hot_action
 
 	def episode_reward2G_Nstep(self, states, actions, rewards, gamma, N_step, discount_factor):
 		## TODO
 		# how to get the output
-		critic_output = self.critic_model.get_critics(states)
+		critic_output = self.critic_model.get_critics(states,actions)
 		num_total_step = len(rewards)
 		# R: list, is the symbol "R_t" in the alorithm 2
 		# G: list, is the difference between R and V(S_t)
@@ -195,116 +188,145 @@ def parse_arguments():
 	return parser.parse_args()
 
 class Actor(object):
-	def __init__(self, model_config_path, num_action, lr, model = None):
-		# if model != None:
-		#     self.load_model(model)
-		#     return
 
-		#with open(model_config_path, 'r') as f:
-		#	self.model = keras.models.model_from_json(f.read())
+	def __init__(self,sess,state_dim,action_dim,actor_lr):
+
+		self.sess = sess
+		self.state_dim = state_dim
+		self.action_dim = action_dim
+		self.actor_lr = actor_lr
+		# create actor network
+		self.state_input,self.action_output,self.net = self.create_network(state_dim,action_dim)
+
+		# define training rules
+		self.create_training_method()
+
+		self.sess.run(tf.initialize_all_variables())
+
+		#self.load_network()
+
+	def create_training_method(self):
+		self.q_gradient_input = tf.placeholder("float",[None,self.action_dim])
+		self.parameters_gradients = tf.gradients(self.action_output,self.net,-self.q_gradient_input)
+		self.optimizer = tf.train.AdamOptimizer(self.actor_lr).apply_gradients(zip(self.parameters_gradients,self.net))
+
+	def create_network(self,state_dim,action_dim):
+		layer1_size = LAYER1_SIZE
+		layer2_size = LAYER2_SIZE
+
+		state_input = tf.placeholder("float",[None,state_dim])
+
+		W1 = self.variable([state_dim,layer1_size],state_dim)
+		b1 = self.variable([layer1_size],state_dim)
+		W2 = self.variable([layer1_size,layer2_size],layer1_size)
+		b2 = self.variable([layer2_size],layer1_size)
+		W3 = tf.Variable(tf.random_uniform([layer2_size,action_dim],-3e-3,3e-3))
+		b3 = tf.Variable(tf.random_uniform([action_dim],-3e-3,3e-3))
+
+		layer1 = tf.nn.relu(tf.matmul(state_input,W1) + b1)
+		layer2 = tf.nn.relu(tf.matmul(layer1,W2) + b2)
+		action_output = tf.tanh(tf.matmul(layer2,W3) + b3)
+
+		return state_input,action_output,[W1,b1,W2,b2,W3,b3]
 
 
-		# define the network for the actor
-		self.G = tf.placeholder(tf.float32,
-						   shape=[None],
-						   name='G')
-		self.action = tf.placeholder(tf.float32,
-								shape=[None, num_action],
-								name='action')
-		self.input = self.model.input
-		optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-		self.output = self.model.output
-		score_func = tf.reduce_sum(tf.multiply(self.output, self.action), axis=[1], keepdims=True)
-		score_func = tf.log(score_func)
-		loss = - tf.reduce_mean(tf.multiply(self.G, score_func), axis=0)
-		gradient = optimizer.compute_gradients(loss, self.model.weights)
-		self.updata_weights = optimizer.apply_gradients(gradient)
+	def train(self,q_gradient_batch,state_batch):
+		self.sess.run(self.optimizer,feed_dict={
+			self.q_gradient_input:q_gradient_batch,
+			self.state_input:state_batch
+			})
 
-		self.sess = tf.Session()
-		self.sess.run(tf.global_variables_initializer())
-		keras.backend.set_session(self.sess)
+	def actions(self,state_batch):
+		return self.sess.run(self.action_output,feed_dict={
+			self.state_input:state_batch
+			})
 
-		if model != None:
-			self.load_model(model)
-		else:
-			self.create_mlp()
-			self.create_optimizer()
-			self.sess.run(tf.global_variables_initializer())
+	def action(self,state):
+		return self.sess.run(self.action_output,feed_dict={
+			self.state_input:[state]
+			})[0]
 
-	def train(self, states, G, actions):
-		self.sess.run(self.updata_weights, 
-			feed_dict={self.input: states, self.G: G, self.action: actions})
-	def create_mlp(self):
-		self.hidden_units_1=100
-		self.w1 = self.create_weights()
-		self.b1 = self.
-	def get_action(self, state):
-		return self.output.eval(session = self.sess, feed_dict={self.input: [state]})
+
+	# f fan-in size
+	def variable(self,shape,f):
+		return tf.Variable(tf.random_uniform(shape,-1/math.sqrt(f),1/math.sqrt(f)))
 
 	def save_model(self, step):
 		# Helper function to save your model.
-		self.model.save_weights("./models/actor-"+str(step)+".h5")
+		self.saver.save(self.sess, 'saved_actor_networks/' + 'actor-network', global_step = step)
 
 	def load_model(self, model_file):
 		# Helper function to load an existing model.
-		self.model.load_weights(model_file)
+		self.saver = tf.train.Saver()
+		checkpoint = tf.train.get_checkpoint_state(model_file)
+		if checkpoint and checkpoint.model_checkpoint_path:
+			self.saver.restore(self.sess, checkpoint.model_checkpoint_path)
+			print "Successfully loaded:", checkpoint.model_checkpoint_path
 
 class Critic(object):
-	def __init__(self, num_observation, lr, model = None):
+	def __init__(self, sess,num_observation, num_action,lr):
 		# define the network for the critic
 		self.num_observation = num_observation
+		self.num_action = num_action
 		self.learning_rate = lr
 
 		self.sess = tf.Session()
 
-		if model != None:
-			self.load_model(model)
-		else:
-			self.create_mlp()
-			self.create_optimizer()
-			self.sess.run(tf.global_variables_initializer())
 
-	def train(self, states, R):
-		self.optimizer.run(session=self.sess, feed_dict={self.state_input: states, self.target_q_value: R})
+		self.state_input,self.action_input,self.q_value_output,self.net = self.create_q_network(num_observation,num_action)
+		self.create_optimizer()
+		self.sess.run(tf.global_variables_initializer())
 
-	def create_mlp(self):
-		# Craete multilayer perceptron (one hidden layer with 20 units)
-		self.hidden_units = 20
 
-		self.w1 = self.create_weights([self.num_observation, self.hidden_units])
-		self.b1 = self.create_bias([self.hidden_units])
 
-		self.state_input = tf.placeholder(tf.float32, [None, self.num_observation], name = "state_input")
+	def create_q_network(self,state_dim,action_dim):
+		# the layer size could be changed
+		layer1_size = LAYER1_SIZE
+		layer2_size = LAYER2_SIZE
 
-		h_layer = tf.nn.relu(tf.matmul(self.state_input, self.w1) + self.b1)
+		state_input = tf.placeholder("float",[None,state_dim])
+		action_input = tf.placeholder("float",[None,action_dim])
 
-		self.w2 = self.create_weights([self.hidden_units, 1])
-		self.b2 = self.create_bias([1])
-		self.q_values = tf.add(tf.matmul(h_layer, self.w2), self.b2, name = "q_values")
+		W1 = self.variable([state_dim,layer1_size],state_dim)
+		b1 = self.variable([layer1_size],state_dim)
+		W2 = self.variable([layer1_size,layer2_size],layer1_size+action_dim)
+		W2_action = self.variable([action_dim,layer2_size],layer1_size+action_dim)
+		b2 = self.variable([layer2_size],layer1_size+action_dim)
+		W3 = tf.Variable(tf.random_uniform([layer2_size,1],-3e-3,3e-3))
+		b3 = tf.Variable(tf.random_uniform([1],-3e-3,3e-3))
 
-	def create_weights(self, shape):
-		initial = tf.truncated_normal(shape, stddev = 0.1)
-		return tf.Variable(initial)
+		layer1 = tf.nn.relu(tf.matmul(state_input,W1) + b1)
+		layer2 = tf.nn.relu(tf.matmul(layer1,W2) + tf.matmul(action_input,W2_action) + b2)
+		q_value_output = tf.identity(tf.matmul(layer2,W3) + b3)
 
-	def create_bias(self, shape):
-		initial = tf.constant(0.1, shape = shape)
-		return tf.Variable(initial)
+		return state_input,action_input,q_value_output,[W1,b1,W2,W2_action,b2,W3,b3]
+
 
 	def create_optimizer(self):
 		# Using Adam to minimize the error between target and evaluation
 		self.target_q_value = tf.placeholder(tf.float32, [None], name = "target_q_value")
-		cost = tf.reduce_mean(tf.square(tf.subtract(self.target_q_value, self.q_values)))
+		cost = tf.reduce_mean(tf.square(tf.subtract(self.target_q_value, self.q_value_output)))
 		self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(cost, name = "optimizer")
+		self.action_gradients = tf.gradients(self.q_value_output,self.action_input)
 
-	def get_critics(self, states):
-		return self.q_values.eval(session = self.sess, feed_dict={self.state_input: states})
+	def train(self, states, R,actions):
+		self.sess.run(self.optimizer,feed_dict={self.target_q_value:R,self.state_input:states,self.action_input:actions})
+		#self.optimizer.run(session=self.sess, feed_dict={self.state_input: states, self.target_q_value: R})
+
+	def gradients(self,states,actions):
+		return self.sess.run(self.action_gradients,feed_dict={self.state_input:states,self.action_input:actions})[0]
+
+	def get_critics(self, states,actions):
+		return self.sess.run(self.q_value_output,feed_dict={self.state_input:states,self.action_input:actions})
+	def variable(self,shape,f):
+		return tf.Variable(tf.random_uniform(shape,-1/math.sqrt(f),1/math.sqrt(f)))
 
 	def save_model(self, step):
 		# Helper function to save your model.
 		saver = tf.train.Saver()
 		self.sess.graph.add_to_collection("optimizer", self.optimizer)
 		saver.save(self.sess, "./models/critic", global_step = step)
-
+	'''
 	def load_model(self, model_file):
 		# Helper function to load an existing model.
 		tf.reset_default_graph()
@@ -317,7 +339,7 @@ class Critic(object):
 		self.state_input = graph.get_tensor_by_name("state_input:0")
 		self.target_q_value = graph.get_tensor_by_name("target_q_value:0")
 		self.optimizer = graph.get_collection("optimizer")[0]
-
+	'''
 from tensorflow.core.framework import summary_pb2
 def summary_var(log_dir, name, val, step):
 	writer = tf.summary.FileWriterCache.get(log_dir)

@@ -38,19 +38,24 @@ class A2C(object):
         self.env = env
         self.N_step = N_step
 
-        # enviroment
-        num_action = env.action_space.shape[0]
+        # # enviroment
+        # num_action = env.action_space.n
         num_observation = env.observation_space.shape[0]
         self.num_episodes = num_episodes
         self.render = render
         self.discount_factor = discount_factor
 
-        # model
-        if model_step == None:
-            self.actor_model = Actor(num_observation, actor_lr, env.action_space.low, env.action_space.high)
-            self.critic_model = Critic(num_observation, critic_lr)
-        else:
-            self.load_models(model_config_path, num_observation, num_action, actor_lr, critic_lr, model_step)
+        # # model
+        # if model_step == None:
+        #     self.actor_model = Actor(model_config_path, num_action, actor_lr)
+        #     self.critic_model = Critic(num_observation, critic_lr)
+        # else:
+        #     self.load_models(model_config_path, num_observation, num_action, actor_lr, critic_lr, model_step)
+
+
+        self.env = gym.make(ENVIROMENT)
+        self.actor_model = Actor(num_observation, actor_lr, env.action_space.low, env.action_space.high)
+        self.critic_model = Critic(num_observation, critic_lr)
 
 
     def train(self, gamma=1.0):
@@ -58,15 +63,15 @@ class A2C(object):
         file = open("log.txt", "w")
 
         max_reward = -500
-        test_frequence = 1000
+        test_frequence = 100
         self.gamma_N_step = gamma ** self.N_step
         for i in range(self.num_episodes):
             states, actions, rewards = self.generate_episode(env=self.env,
                                                              render=self.render)
             R, G = self.episode_reward2G_Nstep(states=states, actions=actions, rewards=rewards, 
                 gamma=gamma, N_step=self.N_step, discount_factor=self.discount_factor)
-            self.actor_model.train(states, G, actions)
-            self.critic_model.train(states, R)
+            self.actor_model.train(np.vstack(states), np.vstack(G), np.vstack(actions))
+            self.critic_model.train(np.vstack(states), np.vstack(R))
 
             if (i % test_frequence == 0):
                 reward, std = self.test(i)
@@ -82,16 +87,14 @@ class A2C(object):
         log_dir = './log'
         name_mean = 'test10_reward'
         name_std = 'test10_std'
-        num_test = 100
+        num_test = 10
         total_array = np.zeros(num_test)
-        env = gym.make(ENVIROMENT)
         for j in range(num_test):
-            _, _, rs = self.generate_episode(env)
-            total_array[j] = A2C.sum_rewards(rs)
+            _, _, rs = self.generate_episode(self.env)
+            total_array[j] = np.sum(rs)
 
         summary_var(log_dir, name_mean, np.mean(total_array), epc_idx)
         summary_var(log_dir, name_std, np.std(total_array), epc_idx)
-        env.close()
 
         return np.mean(total_array), np.std(total_array)
 
@@ -112,11 +115,12 @@ class A2C(object):
                 env.render()
             action = self.actor_model.get_action(state)
             states.append(state)
-            actions.append(action[0])
-            state, reward, done, info = env.step(action[0])
+            actions.append(action)
+            state, reward, done, info = env.step(action)
             rewards.append(reward)
             if done:
                 break
+
         return states, actions, rewards
 
     def episode_reward2G_Nstep(self, states, actions, rewards, gamma, N_step, discount_factor):
@@ -134,14 +138,10 @@ class A2C(object):
             gamma_k = 1
             for k in range(N_step):
                 R[t] += discount_factor * (gamma_k) * (rewards[t + k] if (t + k < num_total_step) else 0)
-                gamma_k *= k
-            G[t] = [R[t] - critic_output[t][0]]
+                gamma_k *= gamma
+            G[t] = R[t] - critic_output[t][0]
 
         return R, G
-
-    @staticmethod
-    def sum_rewards(rewards):
-        return sum(rewards)
 
     def save_models(self, model_step):
         self.actor_model.save_model(model_step)
@@ -160,9 +160,9 @@ def parse_arguments():
     parser.add_argument('--num-episodes', dest='num_episodes', type=int,
                         default=5000000, help="Number of episodes to train on.")
     parser.add_argument('--lr', dest='lr', type=float,
-                        default=1e-3, help="The actor's learning rate.")
+                        default=1e-4, help="The actor's learning rate.")
     parser.add_argument('--critic-lr', dest='critic_lr', type=float,
-                        default=1e-2, help="The critic's learning rate.")
+                        default=1e-3, help="The critic's learning rate.")
     parser.add_argument('--N_step', dest='N_step', type=int,
                         default=100, help="The value of N in N-step A2C.")
 
@@ -179,10 +179,7 @@ def parse_arguments():
     return parser.parse_args()
 
 class Actor(object):
-    def __init__(self, num_observation, lr, action_low, action_high, model = None):
-        # if model != None:
-        #     self.load_model(model)
-        #     return
+    def __init__(self, num_observation, lr, action_low, action_high):
         self.num_observation = num_observation
         self.learning_rate = lr
         self.action_low = action_low
@@ -199,7 +196,7 @@ class Actor(object):
 
     def create_mlp(self):
         # Craete multilayer perceptron (one hidden layer with 20 units)
-        self.hidden_units = 20
+        self.hidden_units = 200
 
         self.G = tf.placeholder(tf.float32, [None, 1], name = 'G')
         self.action = tf.placeholder(tf.float32, [None, 1], name = 'action')
@@ -218,6 +215,8 @@ class Actor(object):
         self.w_sigma = self.create_weights([self.hidden_units, 1])
         self.b_sigma = self.create_bias([1])
         self.sigma = tf.nn.softplus(tf.add(tf.matmul(h_layer, self.w_sigma), self.b_sigma), name = "sigma")
+
+        self.mu, self.sigma = self.mu * self.action_high, self.sigma + 1e-4
 
         self.normal_dist = tf.distributions.Normal(loc=self.mu, scale=self.sigma)
         self.act_out = tf.reshape(self.normal_dist.sample(1), shape=[-1,1])
@@ -240,7 +239,7 @@ class Actor(object):
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(cost, name = "optimizer")
 
     def get_action(self, state):
-        return self.act_out.eval(session = self.sess, feed_dict={self.state_input: [state]})
+        return self.act_out.eval(session = self.sess, feed_dict={self.state_input: [state]})[0]
 
     def save_model(self, step):
         # Helper function to save your model.
@@ -293,7 +292,7 @@ class Critic(object):
 
     def create_optimizer(self):
         # Using Adam to minimize the error between target and evaluation
-        self.target_q_value = tf.placeholder(tf.float32, [None], name = "target_q_value")
+        self.target_q_value = tf.placeholder(tf.float32, [None, 1], name = "target_q_value")
         cost = tf.reduce_mean(tf.square(tf.subtract(self.target_q_value, self.q_values)))
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(cost, name = "optimizer")
 
@@ -341,12 +340,6 @@ def main(args):
 
     # Create the environment.
     env = gym.make(ENVIROMENT)
-
-    env.reset()
-
-    # for i in range(1000000):
-    #     env.render()
-    #     env.step(env.action_space.sample())
     
     a2c = A2C(env, model_config_path, lr, critic_lr, num_episodes, N_step, render)#, model_step = 7400)
 
